@@ -16,7 +16,6 @@ from nwl.traffic import human_demand
 
 SEEDS = range(3)
 RUN_DAYS = 10
-NOISE_LEVELS = (0.0, 0.05, 0.1, 0.2, 0.3)
 
 
 def worlds(cell: Cell) -> list[World]:
@@ -63,21 +62,11 @@ def compare_world(world: World, cell: Cell) -> None:
             print_row(f"({scenario}) {model.name}", measure(runs, cell))
 
 
-def noise_sweep(world: World, cell: Cell) -> None:
-    print(f"\nTahmin gürültüsüne dayanıklılık, {world.name}")
-    print(f"{'':34} {'Tepe':>7} {'Tık.dk':>8} {'Kayıp%':>8} {'Gecikme':>8} {'İhlal%':>8}")
-    for noise in NOISE_LEVELS:
-        runs = [run_world(world, cell, "d", s, noise=noise) for s in SEEDS]
-        print_row(f"(d) gürültü {noise:.2f}", measure(runs, cell))
-
-
 def main() -> None:
     cell = Cell()
-    all_worlds = worlds(cell)
     print(f"{len(SEEDS)} tohum, {RUN_DAYS - 2 * MARGIN_DAYS} ölçüm günü")
-    for world in all_worlds:
+    for world in worlds(cell):
         compare_world(world, cell)
-    noise_sweep(all_worlds[0], cell)
 
 
 if __name__ == "__main__":

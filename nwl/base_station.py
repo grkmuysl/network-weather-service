@@ -62,19 +62,34 @@ class PerfectForecaster:
 
 
 class NoisyForecaster:
-    """Kusursuz tahmine gürültü ekler. Tahmin hatasına dayanıklılığı ölçmek için."""
+    """Kusursuz tahmine her yayında aynı kalan bir hata eğrisi ekler.
+
+    Hata slot başına bir kez üretilir, yani yeni yayınlar onu düzeltmez. `memory` büyüdükçe
+    komşu slotların hatası benzeşir ve tahminde gerçekte olmayan uzun sakin dönemler oluşur.
+    Yayınlanan güven, bu hatanın beklenen büyüklüğünü dürüstçe bildirir.
+    """
 
     def __init__(
-        self, inner: Forecaster, noise: float, rng: np.random.Generator
+        self,
+        inner: Forecaster,
+        noise: float,
+        memory: float,
+        total_slots: int,
+        rng: np.random.Generator,
     ) -> None:
         self.inner = inner
-        self.noise = noise
-        self.rng = rng
+        expected_error = noise * np.sqrt(2 / np.pi)
+        self.confidence = max(1 - expected_error / CONFIDENCE_SCALE, 0.0)
+        shocks = rng.normal(0.0, noise * np.sqrt(1 - memory**2), total_slots)
+        self.errors = np.empty(total_slots)
+        self.errors[0] = rng.normal(0.0, noise)
+        for slot in range(1, total_slots):
+            self.errors[slot] = memory * self.errors[slot - 1] + shocks[slot]
 
     def predict(self, issued_slot: int, slots: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        loads, confidences = self.inner.predict(issued_slot, slots)
-        noisy = loads + self.rng.normal(0.0, self.noise, len(slots))
-        return np.maximum(noisy, 0.0), confidences
+        loads, _ = self.inner.predict(issued_slot, slots)
+        noisy = np.maximum(loads + self.errors[slots], 0.0)
+        return noisy, np.full(len(slots), self.confidence)
 
 
 class ModelForecaster:

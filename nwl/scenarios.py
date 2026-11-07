@@ -8,10 +8,11 @@ görev yoktur, son gün de tahmin ufku simülasyonun sonuna çarpar.
 """
 
 from dataclasses import dataclass
+from functools import partial
 
 import numpy as np
 
-from nwl.agents import Tasks, generate_tasks, no_tasks
+from nwl.agents import Tasks, TaskSettings, generate_tasks, no_tasks
 from nwl.base_station import (
     BaseStation,
     Forecaster,
@@ -22,7 +23,13 @@ from nwl.base_station import (
 )
 from nwl.cell import Cell
 from nwl.forecast import LoadModel
-from nwl.layer import quietest_slot, random_in_quiet_window, schedule_tasks
+from nwl.layer import (
+    QUIET_ERROR_WEIGHT,
+    QUIET_MARGIN,
+    quietest_slot,
+    random_in_quiet_window,
+    schedule_tasks,
+)
 from nwl.protocol import SLOT_MINUTES
 from nwl.simulation import SimulationResult, simulate
 from nwl.traffic import STEPS_PER_DAY, human_demand
@@ -86,30 +93,36 @@ class World:
         return cell.utilization(self.past_mbps).reshape(-1, STEPS_PER_DAY).mean(axis=0)
 
 
-def measured_past(world: World, cell: Cell) -> np.ndarray:
+@dataclass(frozen=True)
+class ForecastError:
+    """Kusursuz tahmine bilerek eklenen hata."""
+
+    shift_minutes: int = 0  # pozitifse tahmin gerçeğin önünden gider
+    noise: float = 0.0
+    memory: float = 0.0
+
+
+def measured_past(
+    world: World, cell: Cell, settings: TaskSettings = TaskSettings()
+) -> np.ndarray:
     """NWL açılmadan önce ölçülen slot yükü: insanlar artı hemen gönderilen görevler."""
     profile = world.task_profile(cell)
     rng = np.random.default_rng(HISTORY_SEED)
-    tasks = generate_tasks(cell, world.start_day, rng, profile)
+    tasks = generate_tasks(cell, world.start_day, rng, profile, settings)
     meter = LoadMeter(cell.utilization(world.past_mbps), cell)
     for start, duration in zip(tasks.arrival, tasks.ideal_duration):
         meter.add_task(int(start), duration)
     return meter.by_slot()
 
 
-def _scheduled_run(
-    world: World,
-    cell: Cell,
-    scenario: str,
-    tasks: Tasks,
-    forecaster: Forecaster,
-    meter: LoadMeter,
-    rng: np.random.Generator,
-) -> SimulationResult:
-    human = world.run_mbps
-    base_station = BaseStation(forecaster, total_slots=len(human) // SLOT_MINUTES)
-    starts = schedule_tasks(tasks, base_station, POLICIES[scenario], rng, meter)
-    return simulate(cell, human, tasks, starts)
+def _perfect_with_error(
+    human_load: np.ndarray, error: ForecastError, rng: np.random.Generator
+) -> Forecaster:
+    forecaster = PerfectForecaster(np.roll(human_load, -error.shift_minutes))
+    if error.noise == 0:
+        return forecaster
+    slots = len(human_load) // SLOT_MINUTES
+    return NoisyForecaster(forecaster, error.noise, error.memory, slots, rng)
 
 
 def run_world(
@@ -119,7 +132,10 @@ def run_world(
     seed: int,
     model: LoadModel | None = None,
     past: np.ndarray | None = None,
-    noise: float = 0.0,
+    error: ForecastError = ForecastError(),
+    settings: TaskSettings = TaskSettings(),
+    quiet_margin: float = QUIET_MARGIN,
+    error_weight: float = QUIET_ERROR_WEIGHT,
 ) -> SimulationResult:
     """Senaryoyu çalıştırır. Eğitilmiş `model` yoksa kusursuz tahmin kullanılır."""
     task_seed, schedule_seed = np.random.SeedSequence(seed).spawn(2)
@@ -127,8 +143,8 @@ def run_world(
     if scenario == "a":
         return simulate(cell, human, no_tasks())
 
-    profile = world.task_profile(cell)
-    tasks = generate_tasks(cell, world.days, np.random.default_rng(task_seed), profile)
+    task_rng = np.random.default_rng(task_seed)
+    tasks = generate_tasks(cell, world.days, task_rng, world.task_profile(cell), settings)
     if scenario == "b":
         return simulate(cell, human, tasks)
 
@@ -138,7 +154,11 @@ def run_world(
     if model is not None:
         forecaster = ModelForecaster(model, past, meter)
     else:
-        forecaster = PerfectForecaster(human_load)
-        if noise > 0:
-            forecaster = NoisyForecaster(forecaster, noise, rng)
-    return _scheduled_run(world, cell, scenario, tasks, forecaster, meter, rng)
+        forecaster = _perfect_with_error(human_load, error, rng)
+
+    policy = POLICIES[scenario]
+    if scenario == "d":
+        policy = partial(policy, quiet_margin=quiet_margin, error_weight=error_weight)
+    base_station = BaseStation(forecaster, total_slots=len(human) // SLOT_MINUTES)
+    starts = schedule_tasks(tasks, base_station, policy, rng, meter)
+    return simulate(cell, human, tasks, starts)

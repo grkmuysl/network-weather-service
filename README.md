@@ -40,7 +40,25 @@ Modelleri simülatörün içinde, sentetik ve Milano trafiğiyle karşılaştır
 python -m nwl.compare_forecasters
 ```
 
-Bu iki komut Milano verisini `data/` altında bekler (aşağıya bakın).
+Raporun deneyleri ayrı ayrı çalışır ve sonuçlarını `results/` altına CSV olarak yazar. Son komut grafikleri üretir:
+
+```bash
+python -m nwl.experiments main
+```
+
+```bash
+python -m nwl.experiments sweeps
+```
+
+```bash
+python -m nwl.experiments errors
+```
+
+```bash
+python -m nwl.experiments plots
+```
+
+Bu komutlar (`plots` dışında) Milano verisini `data/` altında bekler (aşağıya bakın). `main` ve `sweeps` birkaç on dakika sürebilir.
 
 ## Veri
 

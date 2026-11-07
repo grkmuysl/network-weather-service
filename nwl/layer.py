@@ -15,6 +15,7 @@ from nwl.protocol import CONFIDENCE_SCALE, SLOT_MINUTES, ForecastMessage, decode
 
 SAFETY_MARGIN_MINUTES = 30.0
 QUIET_MARGIN = 0.05
+QUIET_ERROR_WEIGHT = 2.0
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class StartOption:
     first_minute: int
     last_minute: int
     cautious_load: float  # tahmin artı beklenen hata
+    expected_error: float = 0.0
 
 
 class NetworkWeatherLayer:
@@ -42,7 +44,8 @@ class NetworkWeatherLayer:
             last = min(slot_start + SLOT_MINUTES - 1, latest_start)
             if first <= last:
                 expected_error = (1 - entry.confidence) * CONFIDENCE_SCALE
-                options.append(StartOption(first, last, entry.predicted_load + expected_error))
+                cautious_load = entry.predicted_load + expected_error
+                options.append(StartOption(first, last, cautious_load, expected_error))
         return options
 
 
@@ -54,13 +57,23 @@ def quietest_slot(options: list[StartOption], rng: np.random.Generator) -> int:
     return min(options, key=lambda option: option.cautious_load).first_minute
 
 
-def random_in_quiet_window(options: list[StartOption], rng: np.random.Generator) -> int:
-    """Senaryo (d): en sakin yüke yakın tüm slotlar arasından rastgele bir dakika."""
-    lowest = min(option.cautious_load for option in options)
+def random_in_quiet_window(
+    options: list[StartOption],
+    rng: np.random.Generator,
+    quiet_margin: float = QUIET_MARGIN,
+    error_weight: float = QUIET_ERROR_WEIGHT,
+) -> int:
+    """Senaryo (d): en sakin yüke yakın tüm slotlar arasından rastgele bir dakika.
+
+    Tahmin belirsizse iki slotun farkı anlamsızdır, bu yüzden pencere beklenen hatayla
+    genişler. Yoksa hatalı bir tahminin ürettiği sahte çukura herkes birden yığılır.
+    """
+    quietest = min(options, key=lambda option: option.cautious_load)
+    limit = quietest.cautious_load + quiet_margin + error_weight * quietest.expected_error
     minutes = [
         minute
         for option in options
-        if option.cautious_load <= lowest + QUIET_MARGIN
+        if option.cautious_load <= limit
         for minute in range(option.first_minute, option.last_minute + 1)
     ]
     return int(rng.choice(minutes))

@@ -3,8 +3,14 @@
 import numpy as np
 import pytest
 
-from nwl.agents import SECONDS_PER_STEP, TASK_RATE_MBPS, Tasks, generate_tasks
-from nwl.base_station import BaseStation, LoadMeter, ModelForecaster, PerfectForecaster
+from nwl.agents import SECONDS_PER_STEP, TASK_RATE_MBPS, Tasks, TaskSettings, generate_tasks
+from nwl.base_station import (
+    BaseStation,
+    LoadMeter,
+    ModelForecaster,
+    NoisyForecaster,
+    PerfectForecaster,
+)
 from nwl.cell import Cell
 from nwl.forecast import MovingAverage, SameTimeLastWeek, SameTimeYesterday
 from nwl.layer import (
@@ -25,7 +31,14 @@ from nwl.protocol import (
     decode,
     encode,
 )
-from nwl.scenarios import MARGIN_DAYS, World, measured_past, run_scenario, run_world
+from nwl.scenarios import (
+    MARGIN_DAYS,
+    ForecastError,
+    World,
+    measured_past,
+    run_scenario,
+    run_world,
+)
 from nwl.traffic import STEPS_PER_DAY, human_demand
 
 
@@ -222,6 +235,51 @@ def test_noise_changes_the_schedule_but_not_the_tasks():
     human = human_demand(cell, 11, np.random.default_rng(0))
     world = World("deneme", human, start_day=8, days=3)
     clean = run_world(world, cell, "d", seed=0)
-    noisy = run_world(world, cell, "d", seed=0, noise=0.3)
+    noisy = run_world(world, cell, "d", seed=0, error=ForecastError(noise=0.3))
     assert np.array_equal(clean.tasks.arrival, noisy.tasks.arrival)
     assert not np.array_equal(clean.agent_mbps, noisy.agent_mbps)
+
+
+def test_forecast_error_stays_the_same_across_broadcasts():
+    perfect = PerfectForecaster(np.full(10 * SLOT_MINUTES, 0.5))
+    noisy = NoisyForecaster(perfect, 0.1, 0.9, 10, np.random.default_rng(0))
+    first, _ = noisy.predict(0, np.array([3, 4]))
+    second, _ = noisy.predict(2, np.array([3, 4]))
+    assert first.tolist() == second.tolist()
+
+
+def test_memory_makes_neighbouring_errors_alike():
+    perfect = PerfectForecaster(np.full(5000 * SLOT_MINUTES, 0.5))
+    rng = np.random.default_rng(0)
+    noisy = NoisyForecaster(perfect, 0.1, 0.95, 5000, rng)
+    assert np.corrcoef(noisy.errors[:-1], noisy.errors[1:])[0, 1] > 0.9
+    assert noisy.errors.std() == pytest.approx(0.1, rel=0.2)
+
+
+def test_task_settings_change_the_share_of_urgent_tasks():
+    rng = np.random.default_rng(0)
+    tasks = generate_tasks(Cell(), 3, rng, settings=TaskSettings(urgent_share=0.9))
+    assert tasks.urgent.mean() == pytest.approx(0.9, abs=0.02)
+
+
+def test_zero_margin_stays_in_the_lowest_slot():
+    options = [StartOption(0, 14, 0.10), StartOption(15, 29, 0.11)]
+    rng = np.random.default_rng(0)
+    picks = {random_in_quiet_window(options, rng, quiet_margin=0.0) for _ in range(100)}
+    assert max(picks) <= 14
+
+
+def test_uncertain_forecast_widens_the_quiet_window():
+    options = [StartOption(0, 14, 0.2, 0.1), StartOption(15, 29, 0.35, 0.1)]
+    rng = np.random.default_rng(0)
+    narrow = {random_in_quiet_window(options, rng, error_weight=0.0) for _ in range(200)}
+    wide = {random_in_quiet_window(options, rng, error_weight=2.0) for _ in range(200)}
+    assert max(narrow) <= 14
+    assert max(wide) >= 15
+
+
+def test_noisy_forecaster_reports_its_expected_error():
+    perfect = PerfectForecaster(np.full(10 * SLOT_MINUTES, 0.5))
+    noisy = NoisyForecaster(perfect, 0.1, 0.0, 10, np.random.default_rng(0))
+    _, confidence = noisy.predict(0, np.array([0, 1]))
+    assert confidence == pytest.approx(1 - 0.0798 / 0.5, abs=0.001)

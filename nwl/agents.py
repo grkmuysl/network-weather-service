@@ -23,6 +23,15 @@ DEFERRABLE_SLACK_MINUTES = (120.0, 720.0)
 
 
 @dataclass(frozen=True)
+class TaskSettings:
+    """Deneylerde değiştirilen görev varsayımları."""
+
+    volume_share: float = AGENT_VOLUME_SHARE
+    urgent_share: float = URGENT_SHARE
+    deferrable_slack_minutes: tuple[float, float] = DEFERRABLE_SLACK_MINUTES
+
+
+@dataclass(frozen=True)
 class Tasks:
     """Görev listesi. Her dizinin i. elemanı i. göreve aittir."""
 
@@ -54,6 +63,7 @@ def generate_tasks(
     days: int,
     rng: np.random.Generator,
     profile: np.ndarray | None = None,
+    settings: TaskSettings = TaskSettings(),
 ) -> Tasks:
     """`days` gün için görevleri üretir. Hacim, insan trafiğinin belirli bir oranıdır.
 
@@ -63,7 +73,7 @@ def generate_tasks(
         profile = daily_profile()
     mean_size_mb = TASK_RATE_MBPS * SECONDS_PER_STEP * MEAN_DURATION_MINUTES
     human_volume_mb = cell.capacity_mbps * profile * SECONDS_PER_STEP
-    arrival_rate = AGENT_VOLUME_SHARE * human_volume_mb / mean_size_mb
+    arrival_rate = settings.volume_share * human_volume_mb / mean_size_mb
 
     counts = rng.poisson(np.tile(arrival_rate, days))
     arrival = np.repeat(np.arange(days * STEPS_PER_DAY), counts)
@@ -74,10 +84,10 @@ def generate_tasks(
     duration = rng.lognormal(log_mean, DURATION_SPREAD, n)
     size_mb = duration * TASK_RATE_MBPS * SECONDS_PER_STEP
 
-    urgent = rng.random(n) < URGENT_SHARE
+    urgent = rng.random(n) < settings.urgent_share
     slack = np.where(
         urgent,
         URGENT_SLACK_MINUTES,
-        rng.uniform(*DEFERRABLE_SLACK_MINUTES, n),
+        rng.uniform(*settings.deferrable_slack_minutes, n),
     )
     return Tasks(arrival, size_mb, urgent, arrival + duration + slack)
