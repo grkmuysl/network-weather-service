@@ -7,7 +7,8 @@ import numpy as np
 from nwl.cell import Cell
 from nwl.metrics import Metrics, compute_metrics
 from nwl.plots import plot_daily_load, plot_scenarios
-from nwl.scenarios import SCENARIOS, run_scenario
+from nwl.scenarios import MARGIN_DAYS, SCENARIOS, run_scenario
+from nwl.traffic import STEPS_PER_DAY
 
 SEEDS = range(10)
 DAYS = 14
@@ -39,8 +40,13 @@ def main() -> None:
 
     for scenario, label in SCENARIOS.items():
         results = [run_scenario(scenario, cell, DAYS, seed) for seed in SEEDS]
-        metrics_by_scenario[label] = [compute_metrics(result, cell) for result in results]
-        demand_by_scenario[label] = np.concatenate([r.offered_mbps for r in results])
+        metrics_by_scenario[label] = [
+            compute_metrics(result, cell, MARGIN_DAYS) for result in results
+        ]
+        margin = MARGIN_DAYS * STEPS_PER_DAY
+        demand_by_scenario[label] = np.concatenate(
+            [result.offered_mbps[margin:-margin] for result in results]
+        )
 
     print(f"{len(SEEDS)} tohum, tohum başına {DAYS} gün")
     print_table(metrics_by_scenario)
