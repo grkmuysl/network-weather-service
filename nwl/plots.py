@@ -20,15 +20,11 @@ GRID = "#e4e3df"
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 
 
-def _style_load_axes(ax: plt.Axes, cell: Cell, title: str, y_max: float) -> None:
+def _style_day_axes(ax: plt.Axes, title: str, y_label: str, y_max: float) -> None:
     ax.set_facecolor(SURFACE)
-    threshold = cell.congestion_threshold
-    ax.axhline(threshold, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
-    ax.text(7.0, threshold + 0.015, "Tıkanıklık eşiği", color=TEXT_SECONDARY, fontsize=9)
-
     ax.set_title(title, loc="left", color=TEXT_PRIMARY, fontsize=13)
     ax.set_xlabel("Günün saati", color=TEXT_SECONDARY)
-    ax.set_ylabel("Yük (kapasitenin oranı)", color=TEXT_SECONDARY)
+    ax.set_ylabel(y_label, color=TEXT_SECONDARY)
     ax.set_xlim(0, 24)
     ax.set_ylim(0, y_max)
     ax.set_xticks(range(0, 25, 3), [f"{h:02d}:00" for h in range(0, 25, 3)])
@@ -39,6 +35,13 @@ def _style_load_axes(ax: plt.Axes, cell: Cell, title: str, y_max: float) -> None
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(GRID)
+
+
+def _style_load_axes(ax: plt.Axes, cell: Cell, title: str, y_max: float) -> None:
+    threshold = cell.congestion_threshold
+    ax.axhline(threshold, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
+    ax.text(7.0, threshold + 0.015, "Tıkanıklık eşiği", color=TEXT_SECONDARY, fontsize=9)
+    _style_day_axes(ax, title, "Yük (kapasitenin oranı)", y_max)
 
 
 def plot_daily_load(demand_mbps: np.ndarray, cell: Cell, path: Path) -> None:
@@ -71,6 +74,21 @@ def plot_scenarios(demand_by_scenario: dict[str, np.ndarray], cell: Cell, path: 
         highest = max(highest, average_day.max())
     _style_load_axes(ax, cell, "Senaryoların ortalama günlük yükü", y_max=1.1 * highest)
     ax.legend(loc="upper center", frameon=False, labelcolor=TEXT_PRIMARY, fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def plot_daily_shapes(shapes: dict[str, np.ndarray], path: Path) -> None:
+    """Ortalama günleri kendi tepelerine bölerek yalnızca şekillerini karşılaştırır."""
+    fig, ax = plt.subplots(figsize=(9, 4.5), facecolor=SURFACE)
+    for (label, shape), color in zip(shapes.items(), SERIES):
+        hours = np.arange(len(shape)) * 24.0 / len(shape)
+        ax.plot(hours, shape / shape.max(), color=color, linewidth=2, label=label)
+    _style_day_axes(ax, "Milano bölgeleri ve sentetik eğrinin günlük şekli",
+                    "Yük (günün tepesine oranla)", y_max=1.05)
+    ax.legend(loc="lower right", frameon=False, labelcolor=TEXT_PRIMARY, fontsize=9)
 
     fig.tight_layout()
     fig.savefig(path, dpi=150)
