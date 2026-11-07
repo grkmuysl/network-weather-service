@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 
 from nwl.agents import SECONDS_PER_STEP, TASK_RATE_MBPS, Tasks, generate_tasks
-from nwl.base_station import BaseStation, PerfectForecaster
+from nwl.base_station import BaseStation, LoadMeter, ModelForecaster, PerfectForecaster
 from nwl.cell import Cell
+from nwl.forecast import MovingAverage, SameTimeLastWeek, SameTimeYesterday
 from nwl.layer import (
     SAFETY_MARGIN_MINUTES,
     NetworkWeatherLayer,
@@ -24,8 +25,8 @@ from nwl.protocol import (
     decode,
     encode,
 )
-from nwl.scenarios import MARGIN_DAYS, run_scenario
-from nwl.traffic import STEPS_PER_DAY
+from nwl.scenarios import MARGIN_DAYS, World, measured_past, run_scenario, run_world
+from nwl.traffic import STEPS_PER_DAY, human_demand
 
 
 def station_with_loads(loads: list[float]) -> BaseStation:
@@ -148,3 +149,79 @@ def test_full_nwl_lowers_the_peak_compared_with_ignoring_the_forecast():
 def test_randomisation_removes_the_herd_peak():
     c, d = measured("c"), measured("d")
     assert np.mean([r.peak_load for r in d]) < np.mean([r.peak_load for r in c])
+
+
+def test_meter_adds_task_load_with_a_partial_last_minute():
+    cell = Cell(capacity_mbps=100)
+    meter = LoadMeter(np.zeros(5), cell)
+    meter.add_task(1, 1.5)
+    assert meter.load == pytest.approx([0, 0.02, 0.01, 0, 0])
+
+
+def test_low_confidence_makes_a_slot_look_busier():
+    payload = encode(
+        ForecastMessage(0, (ForecastEntry(0, 0.2, 0.5), ForecastEntry(1, 0.3, 1.0)))
+    )
+    layer = NetworkWeatherLayer()
+    layer.receive(payload)
+    options = layer.start_options(now=0, latest_start=29)
+    assert [o.cautious_load for o in options] == pytest.approx([0.45, 0.3])
+    assert quietest_slot(options, np.random.default_rng(0)) == 15
+
+
+def world_with_flat_history() -> tuple[np.ndarray, LoadMeter]:
+    history = np.full(10 * HORIZON_SLOTS, 0.4)
+    return history, LoadMeter(np.full(2 * STEPS_PER_DAY, 0.4), Cell())
+
+
+def test_model_forecaster_sees_only_finished_slots():
+    history, meter = world_with_flat_history()
+    forecaster = ModelForecaster(MovingAverage(window=1), history, meter)
+    meter.load[:SLOT_MINUTES] = 0.9
+    meter.load[SLOT_MINUTES:] = 0.1
+    loads, _ = forecaster.predict(1, np.array([1, 2]))
+    assert loads.tolist() == pytest.approx([0.9, 0.9])
+
+
+def test_confidence_falls_when_the_model_starts_missing():
+    history, meter = world_with_flat_history()
+    forecaster = ModelForecaster(SameTimeYesterday(), history, meter)
+    slots = np.array([0])
+    _, before = forecaster.predict(0, slots)
+    assert before[0] == pytest.approx(1.0)
+
+    meter.load[:] = 0.9
+    forecaster.predict(4, np.array([4]))
+    _, after = forecaster.predict(8, np.array([8]))
+    assert after[0] < 1.0
+
+
+def test_scheduling_records_every_task_in_the_meter():
+    cell = Cell()
+    tasks = generate_tasks(cell, 2, np.random.default_rng(0))
+    meter = LoadMeter(np.zeros(2 * STEPS_PER_DAY), cell)
+    station = BaseStation(PerfectForecaster(np.full(2 * STEPS_PER_DAY, 0.5)), total_slots=192)
+    schedule_tasks(tasks, station, quietest_slot, np.random.default_rng(0), meter)
+    recorded = meter.load.sum() * cell.capacity_mbps * SECONDS_PER_STEP
+    assert recorded == pytest.approx(tasks.size_mb.sum(), rel=0.02)
+
+
+def test_world_runs_with_a_model_in_the_loop():
+    cell = Cell()
+    human = human_demand(cell, 11, np.random.default_rng(0))
+    world = World("deneme", human, start_day=8, days=3)
+    past = measured_past(world, cell)
+    model = SameTimeLastWeek()
+    result = run_world(world, cell, "d", seed=0, model=model, past=past)
+    metrics = compute_metrics(result, cell, MARGIN_DAYS)
+    assert metrics.deadline_violation_percent < 5
+
+
+def test_noise_changes_the_schedule_but_not_the_tasks():
+    cell = Cell()
+    human = human_demand(cell, 11, np.random.default_rng(0))
+    world = World("deneme", human, start_day=8, days=3)
+    clean = run_world(world, cell, "d", seed=0)
+    noisy = run_world(world, cell, "d", seed=0, noise=0.3)
+    assert np.array_equal(clean.tasks.arrival, noisy.tasks.arrival)
+    assert not np.array_equal(clean.agent_mbps, noisy.agent_mbps)

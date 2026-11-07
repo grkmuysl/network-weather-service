@@ -34,7 +34,13 @@ Tahmin modellerini karşılaştırmak için:
 python -m nwl.evaluate_forecasts
 ```
 
-Bu komut Milano verisini `data/` altında bekler (aşağıya bakın).
+Modelleri simülatörün içinde, sentetik ve Milano trafiğiyle karşılaştırmak için:
+
+```bash
+python -m nwl.compare_forecasters
+```
+
+Bu iki komut Milano verisini `data/` altında bekler (aşağıya bakın).
 
 ## Veri
 

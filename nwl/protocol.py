@@ -6,6 +6,9 @@ Baz istasyonu her 15 dakikada bir önümüzdeki 24 saatin tahminini yayınlar:
     Kayıt (5 bayt):   time_slot (uint16), predicted_load (uint16), confidence (uint8)
 
 predicted_load binde bir, confidence yüzde bir birimiyle saklanır.
+
+confidence, tahminin beklenen mutlak hatasını taşır: 1 hatasız, 0 ise hatanın en az
+CONFIDENCE_SCALE olduğu anlamına gelir. Böylece alıcı hatayı yükle aynı birime çevirebilir.
 """
 
 import struct
@@ -13,6 +16,7 @@ from dataclasses import dataclass
 
 SLOT_MINUTES = 15
 HORIZON_SLOTS = 96
+CONFIDENCE_SCALE = 0.5
 
 _HEADER = struct.Struct("!IH")
 _ENTRY = struct.Struct("!HHB")

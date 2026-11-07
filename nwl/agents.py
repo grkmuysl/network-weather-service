@@ -49,9 +49,18 @@ def no_tasks() -> Tasks:
     )
 
 
-def generate_tasks(cell: Cell, days: int, rng: np.random.Generator) -> Tasks:
-    """`days` gün için görevleri üretir. Hacim, insan trafiğinin belirli bir oranıdır."""
-    profile = daily_profile()
+def generate_tasks(
+    cell: Cell,
+    days: int,
+    rng: np.random.Generator,
+    profile: np.ndarray | None = None,
+) -> Tasks:
+    """`days` gün için görevleri üretir. Hacim, insan trafiğinin belirli bir oranıdır.
+
+    `profile`, dakika başına ortalama insan yüküdür; verilmezse sentetik eğri kullanılır.
+    """
+    if profile is None:
+        profile = daily_profile()
     mean_size_mb = TASK_RATE_MBPS * SECONDS_PER_STEP * MEAN_DURATION_MINUTES
     human_volume_mb = cell.capacity_mbps * profile * SECONDS_PER_STEP
     arrival_rate = AGENT_VOLUME_SHARE * human_volume_mb / mean_size_mb
