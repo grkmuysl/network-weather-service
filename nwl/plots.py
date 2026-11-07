@@ -8,6 +8,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import PercentFormatter
 
 from nwl.cell import Cell
 from nwl.traffic import STEPS_PER_DAY
@@ -16,7 +17,28 @@ SURFACE = "#fcfcfb"
 TEXT_PRIMARY = "#0b0b0b"
 TEXT_SECONDARY = "#52514e"
 GRID = "#e4e3df"
-SERIES = "#2a78d6"
+SERIES = ["#2a78d6", "#eb6834"]
+
+
+def _style_load_axes(ax: plt.Axes, cell: Cell, title: str, y_max: float) -> None:
+    ax.set_facecolor(SURFACE)
+    threshold = cell.congestion_threshold
+    ax.axhline(threshold, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
+    ax.text(0.2, threshold + 0.015, "Tıkanıklık eşiği", color=TEXT_SECONDARY, fontsize=9)
+
+    ax.set_title(title, loc="left", color=TEXT_PRIMARY, fontsize=13)
+    ax.set_xlabel("Günün saati", color=TEXT_SECONDARY)
+    ax.set_ylabel("Yük (kapasitenin oranı)", color=TEXT_SECONDARY)
+    ax.set_xlim(0, 24)
+    ax.set_ylim(0, y_max)
+    ax.set_xticks(range(0, 25, 3), [f"{h:02d}:00" for h in range(0, 25, 3)])
+    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+    ax.tick_params(colors=TEXT_SECONDARY, length=0)
+    ax.grid(axis="y", color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(GRID)
 
 
 def plot_daily_load(demand_mbps: np.ndarray, cell: Cell, path: Path) -> None:
@@ -25,30 +47,28 @@ def plot_daily_load(demand_mbps: np.ndarray, cell: Cell, path: Path) -> None:
     hours = np.arange(STEPS_PER_DAY) / 60.0
 
     fig, ax = plt.subplots(figsize=(9, 4.5), facecolor=SURFACE)
-    ax.set_facecolor(SURFACE)
     for day in days:
-        ax.plot(hours, day, color=SERIES, alpha=0.18, linewidth=0.7)
-    ax.plot(hours, days.mean(axis=0), color=SERIES, linewidth=2)
-
-    threshold = cell.congestion_threshold
-    ax.axhline(threshold, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
-    ax.text(0.2, threshold + 0.015, "Tıkanıklık eşiği", color=TEXT_SECONDARY, fontsize=9)
+        ax.plot(hours, day, color=SERIES[0], alpha=0.18, linewidth=0.7)
+    ax.plot(hours, days.mean(axis=0), color=SERIES[0], linewidth=2)
     ax.text(13, 0.5, f"Ortalama gün (ince çizgiler: {len(days)} ayrı gün)",
             color=TEXT_PRIMARY, fontsize=9, ha="center")
+    _style_load_axes(ax, cell, "Hücrenin günlük insan yükü", y_max=1.0)
 
-    ax.set_title("Hücrenin günlük insan yükü", loc="left", color=TEXT_PRIMARY, fontsize=13)
-    ax.set_xlabel("Günün saati", color=TEXT_SECONDARY)
-    ax.set_ylabel("Yük (kapasitenin oranı)", color=TEXT_SECONDARY)
-    ax.set_xlim(0, 24)
-    ax.set_ylim(0, 1)
-    ax.set_xticks(range(0, 25, 3), [f"{h:02d}:00" for h in range(0, 25, 3)])
-    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(xmax=1, decimals=0))
-    ax.tick_params(colors=TEXT_SECONDARY, length=0)
-    ax.grid(axis="y", color=GRID, linewidth=0.8)
-    ax.set_axisbelow(True)
-    for side in ("top", "right", "left"):
-        ax.spines[side].set_visible(False)
-    ax.spines["bottom"].set_color(GRID)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def plot_scenarios(demand_by_scenario: dict[str, np.ndarray], cell: Cell, path: Path) -> None:
+    """Her senaryonun ortalama gününü üst üste çizer."""
+    hours = np.arange(STEPS_PER_DAY) / 60.0
+
+    fig, ax = plt.subplots(figsize=(9, 4.5), facecolor=SURFACE)
+    for (label, demand), color in zip(demand_by_scenario.items(), SERIES):
+        average_day = cell.utilization(demand).reshape(-1, STEPS_PER_DAY).mean(axis=0)
+        ax.plot(hours, average_day, color=color, linewidth=2, label=label)
+    _style_load_axes(ax, cell, "Ajanlar akşam tepesini eşiğin üstüne taşıyor", y_max=1.1)
+    ax.legend(loc="upper left", frameon=False, labelcolor=TEXT_PRIMARY, fontsize=9)
 
     fig.tight_layout()
     fig.savefig(path, dpi=150)

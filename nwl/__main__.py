@@ -5,28 +5,50 @@ from pathlib import Path
 import numpy as np
 
 from nwl.cell import Cell
-from nwl.plots import plot_daily_load
-from nwl.traffic import STEPS_PER_DAY, human_demand
+from nwl.metrics import Metrics, compute_metrics
+from nwl.plots import plot_daily_load, plot_scenarios
+from nwl.scenarios import SCENARIOS, run_scenario
 
-SEED = 42
+SEEDS = range(10)
 DAYS = 14
-OUTPUT = Path("results/human_load.png")
+RESULTS = Path("results")
+
+COLUMNS = {
+    "peak_load": "Tepe yük",
+    "peak_to_average": "Tepe/ortalama",
+    "congested_minutes_per_day": "Tıkanıklık (dk/gün)",
+    "human_unserved_percent": "Karşılanmayan insan talebi (%)",
+    "agent_delay_minutes": "Ajan gecikmesi (dk)",
+    "deadline_violation_percent": "Son teslim ihlali (%)",
+}
+
+
+def print_table(metrics_by_scenario: dict[str, list[Metrics]]) -> None:
+    """Her ölçüt için tohumların ortalamasını ve standart sapmasını yazdırır."""
+    for label, runs in metrics_by_scenario.items():
+        print(f"\n{label}")
+        for field, name in COLUMNS.items():
+            values = [getattr(run, field) for run in runs]
+            print(f"  {name:32} {np.mean(values):8.2f} ± {np.std(values):.2f}")
 
 
 def main() -> None:
     cell = Cell()
-    demand = human_demand(cell, DAYS, np.random.default_rng(SEED))
+    metrics_by_scenario = {}
+    demand_by_scenario = {}
 
-    load = cell.utilization(demand)
-    congested_minutes = cell.is_congested(demand).sum() / DAYS
-    print(f"{DAYS} gün, {cell.capacity_mbps:.0f} Mbps kapasite")
-    print(f"Ortalama yük:          %{100 * load.mean():.1f}")
-    print(f"Günlük tepe ortalaması: %{100 * load.reshape(-1, STEPS_PER_DAY).max(axis=1).mean():.1f}")
-    print(f"Günlük tıkanıklık:     {congested_minutes:.1f} dakika")
+    for scenario, label in SCENARIOS.items():
+        results = [run_scenario(scenario, cell, DAYS, seed) for seed in SEEDS]
+        metrics_by_scenario[label] = [compute_metrics(result, cell) for result in results]
+        demand_by_scenario[label] = np.concatenate([r.offered_mbps for r in results])
 
-    OUTPUT.parent.mkdir(exist_ok=True)
-    plot_daily_load(demand, cell, OUTPUT)
-    print(f"Grafik: {OUTPUT}")
+    print(f"{len(SEEDS)} tohum, tohum başına {DAYS} gün")
+    print_table(metrics_by_scenario)
+
+    RESULTS.mkdir(exist_ok=True)
+    plot_daily_load(run_scenario("a", cell, DAYS, SEEDS[0]).human_mbps, cell, RESULTS / "human_load.png")
+    plot_scenarios(demand_by_scenario, cell, RESULTS / "scenarios.png")
+    print(f"\nGrafikler: {RESULTS}/")
 
 
 if __name__ == "__main__":

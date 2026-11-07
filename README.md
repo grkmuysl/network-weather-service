@@ -26,7 +26,7 @@ pip install -r requirements.txt
 python -m nwl
 ```
 
-Komut özet değerleri yazdırır ve günlük yük grafiğini `results/human_load.png` dosyasına kaydeder.
+Komut senaryoların sonuç tablosunu yazdırır ve grafikleri `results/` klasörüne kaydeder.
 
 ## Testler
 
