@@ -24,7 +24,7 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 def _style_day_axes(ax: plt.Axes, title: str, y_label: str, y_max: float) -> None:
     ax.set_facecolor(SURFACE)
     ax.set_title(title, loc="left", color=TEXT_PRIMARY, fontsize=13)
-    ax.set_xlabel("Günün saati", color=TEXT_SECONDARY)
+    ax.set_xlabel("Hour of day", color=TEXT_SECONDARY)
     ax.set_ylabel(y_label, color=TEXT_SECONDARY)
     ax.set_xlim(0, 24)
     ax.set_ylim(0, y_max)
@@ -41,8 +41,8 @@ def _style_day_axes(ax: plt.Axes, title: str, y_label: str, y_max: float) -> Non
 def _style_load_axes(ax: plt.Axes, cell: Cell, title: str, y_max: float) -> None:
     threshold = cell.congestion_threshold
     ax.axhline(threshold, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
-    ax.text(7.0, threshold + 0.015, "Tıkanıklık eşiği", color=TEXT_SECONDARY, fontsize=9)
-    _style_day_axes(ax, title, "Yük (kapasitenin oranı)", y_max)
+    ax.text(7.0, threshold + 0.015, "Congestion threshold", color=TEXT_SECONDARY, fontsize=9)
+    _style_day_axes(ax, title, "Load (share of capacity)", y_max)
 
 
 def plot_daily_load(demand_mbps: np.ndarray, cell: Cell, path: Path) -> None:
@@ -54,9 +54,9 @@ def plot_daily_load(demand_mbps: np.ndarray, cell: Cell, path: Path) -> None:
     for day in days:
         ax.plot(hours, day, color=SERIES[0], alpha=0.18, linewidth=0.7)
     ax.plot(hours, days.mean(axis=0), color=SERIES[0], linewidth=2)
-    ax.text(13, 0.5, f"Ortalama gün (ince çizgiler: {len(days)} ayrı gün)",
+    ax.text(13, 0.5, f"Average day (thin lines: {len(days)} individual days)",
             color=TEXT_PRIMARY, fontsize=9, ha="center")
-    _style_load_axes(ax, cell, "Hücrenin günlük insan yükü", y_max=1.0)
+    _style_load_axes(ax, cell, "Daily human load of the cell", y_max=1.0)
 
     fig.tight_layout()
     fig.savefig(path, dpi=150)
@@ -73,7 +73,7 @@ def plot_scenarios(demand_by_scenario: dict[str, np.ndarray], cell: Cell, path: 
         average_day = cell.utilization(demand).reshape(-1, STEPS_PER_DAY).mean(axis=0)
         ax.plot(hours, average_day, color=color, linewidth=2, label=label)
         highest = max(highest, average_day.max())
-    _style_load_axes(ax, cell, "Senaryoların ortalama günlük yükü", y_max=1.1 * highest)
+    _style_load_axes(ax, cell, "Average daily load of the scenarios", y_max=1.1 * highest)
     ax.legend(loc="upper center", frameon=False, labelcolor=TEXT_PRIMARY, fontsize=9)
 
     fig.tight_layout()
@@ -87,8 +87,8 @@ def plot_daily_shapes(shapes: dict[str, np.ndarray], path: Path) -> None:
     for (label, shape), color in zip(shapes.items(), SERIES):
         hours = np.arange(len(shape)) * 24.0 / len(shape)
         ax.plot(hours, shape / shape.max(), color=color, linewidth=2, label=label)
-    _style_day_axes(ax, "Milano bölgeleri ve sentetik eğrinin günlük şekli",
-                    "Yük (günün tepesine oranla)", y_max=1.05)
+    _style_day_axes(ax, "Daily shape of the Milan cells and the synthetic curve",
+                    "Load (share of the daily peak)", y_max=1.05)
     ax.legend(loc="lower right", frameon=False, labelcolor=TEXT_PRIMARY, fontsize=9)
 
     fig.tight_layout()
@@ -107,15 +107,22 @@ def _style_small_axes(ax: plt.Axes, title: str) -> None:
     ax.spines["bottom"].set_color(GRID)
 
 
-MAIN_WORLDS = ("Sentetik", "Merkez, normal", "Akşam yoğun, normal", "Akşam yoğun, tatil")
+# Rapor İngilizce olduğu için sonuç grafiklerinin etiketleri de İngilizcedir.
+WORLD_LABELS = {
+    "Sentetik": "Synthetic",
+    "Merkez, normal": "Centre",
+    "Akşam yoğun, normal": "Evening",
+    "Akşam yoğun, tatil": "Evening, holiday",
+}
+MAIN_WORLDS = tuple(WORLD_LABELS)
 MAIN_ROWS = {
-    ("a", "-"): "(a) Ajan yok",
-    ("b", "-"): "(b) Tahmini yok say",
-    ("c", "ARIMA"): "(c) ARIMA, rastgelelik yok",
-    ("d", "Dün aynı saat"): "(d) Dün aynı saat",
+    ("a", "-"): "(a) No agents",
+    ("b", "-"): "(b) Ignore forecast",
+    ("c", "ARIMA"): "(c) ARIMA, no randomisation",
+    ("d", "Dün aynı saat"): "(d) Same time yesterday",
     ("d", "ARIMA"): "(d) ARIMA",
-    ("d", "LSTM"): "(d) LSTM",
-    ("d", "Kusursuz"): "(d) Kusursuz tahmin",
+    ("d", "LSTM"): "(d) Small LSTM",
+    ("d", "Kusursuz"): "(d) Perfect forecast",
 }
 
 
@@ -132,12 +139,12 @@ def plot_main_results(results: pd.DataFrame, path: Path) -> None:
             ax.text(value + 0.05, position, f"{value:.0%}", va="center", color=TEXT_PRIMARY,
                     fontsize=8, zorder=3, bbox=dict(facecolor=SURFACE, edgecolor="none", pad=1))
         ax.axvline(0.8, color=TEXT_SECONDARY, linewidth=1, linestyle="--")
-        _style_small_axes(ax, world)
+        _style_small_axes(ax, WORLD_LABELS[world])
         ax.grid(False)
         ax.set_yticks(positions, list(MAIN_ROWS.values()))
         ax.xaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
         ax.set_xlim(0, 3.9)
-    fig.suptitle("Ortalama günlük tepe yük (kesikli çizgi: tıkanıklık eşiği)",
+    fig.suptitle("Mean daily peak load (dashed line: congestion threshold)",
                  x=0.01, ha="left", color=TEXT_PRIMARY, fontsize=13)
 
     fig.tight_layout()
@@ -146,31 +153,31 @@ def plot_main_results(results: pd.DataFrame, path: Path) -> None:
 
 
 SWEEP_WORLDS = ("Sentetik", "Merkez, normal", "Akşam yoğun, normal")
-SWEEP_GROUPS = (
-    "Ajan payı",
-    "Acil görev payı",
-    "En uzun süre (dk)",
-    "Sakin pencere payı",
-    "Tıkanıklık eşiği",
-)
+SWEEP_GROUPS = {
+    "Ajan payı": "Agent share",
+    "Acil görev payı": "Urgent share",
+    "En uzun süre (dk)": "Maximum slack (min)",
+    "Sakin pencere payı": "Fixed quiet margin",
+    "Tıkanıklık eşiği": "Congestion threshold",
+}
 
 
 def plot_sweeps(results: pd.DataFrame, path: Path) -> None:
     """Varsayımlar değiştikçe tıkanıklığın nasıl değiştiğini gösterir."""
     fig, axes = plt.subplots(3, 5, figsize=(12, 7), sharex="col", sharey="row", facecolor=SURFACE)
-    labels = {"b": "(b) Tahmini yok say", "d": "(d) Tam NWL, ARIMA"}
+    labels = {"b": "(b) Ignore forecast", "d": "(d) Full NWL, ARIMA"}
     means = results.groupby(["world", "group", "scenario", "value"]).congested_minutes_per_day.mean()
 
     for row, world in enumerate(SWEEP_WORLDS):
-        for column, group in enumerate(SWEEP_GROUPS):
+        for column, (group, title) in enumerate(SWEEP_GROUPS.items()):
             ax = axes[row, column]
             for (scenario, label), color in zip(labels.items(), SERIES):
                 line = means[world, group, scenario]
                 ax.plot(line.index, line.values, color=color, linewidth=2, marker="o",
                         markersize=4, label=label)
-            _style_small_axes(ax, group if row == 0 else "")
+            _style_small_axes(ax, title if row == 0 else "")
             ax.set_ylim(bottom=0)
-        axes[row, 0].set_ylabel(f"{world}\ntıkanık dk/gün", color=TEXT_SECONDARY, fontsize=9)
+        axes[row, 0].set_ylabel(f"{WORLD_LABELS[world]}\ncongested min/day", color=TEXT_SECONDARY, fontsize=9)
 
     axes[0, 0].legend(frameon=False, labelcolor=TEXT_PRIMARY, fontsize=8)
     fig.tight_layout()
@@ -186,34 +193,34 @@ def plot_error_robustness(results: pd.DataFrame, path: Path) -> None:
     means = errors.groupby(["world", "group", "forecaster", "value"]).peak_load.mean()
     reference = results[results.group == "referans"].groupby("world").peak_load.mean()
     lines = (
-        ("Bağımsız hata", "Pencere sabit", SERIES[1], "-"),
-        ("Uzun süren hata", "Pencere sabit", SERIES[1], ":"),
-        ("Bağımsız hata", "Pencere genişliyor", SERIES[0], "-"),
-        ("Uzun süren hata", "Pencere genişliyor", SERIES[0], ":"),
+        ("Bağımsız hata", "Pencere sabit", SERIES[1], "-", "Independent error, fixed window"),
+        ("Uzun süren hata", "Pencere sabit", SERIES[1], ":", "Long-lasting error, fixed window"),
+        ("Bağımsız hata", "Pencere genişliyor", SERIES[0], "-", "Independent error, widening window"),
+        ("Uzun süren hata", "Pencere genişliyor", SERIES[0], ":", "Long-lasting error, widening window"),
     )
 
     for column, world in enumerate(SWEEP_WORLDS):
         top, bottom = axes[0, column], axes[1, column]
-        for group, forecaster, color, style in lines:
+        for group, forecaster, color, style, label in lines:
             line = means[world, group, forecaster]
             top.plot(line.index, line.values, color=color, linestyle=style, linewidth=2,
-                     marker="o", markersize=4, label=f"{group}, {forecaster.lower()}")
+                     marker="o", markersize=4, label=label)
         shift = means[world, "Zaman kayması (dk)", "Pencere genişliyor"]
         bottom.plot(shift.index, shift.values, color=SERIES[0], linewidth=2, marker="o", markersize=4)
         for ax in (top, bottom):
             ax.axhline(reference[world], color=TEXT_SECONDARY, linewidth=1, linestyle="--")
             ax.yaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
-        _style_small_axes(top, world)
+        _style_small_axes(top, WORLD_LABELS[world])
         _style_small_axes(bottom, "")
-        top.set_xlabel("Hatanın standart sapması (yük)", color=TEXT_SECONDARY, fontsize=9)
-        bottom.set_xlabel("Tahminin zaman kayması (dk)", color=TEXT_SECONDARY, fontsize=9)
+        top.set_xlabel("Error standard deviation (load)", color=TEXT_SECONDARY, fontsize=9)
+        bottom.set_xlabel("Forecast time shift (min)", color=TEXT_SECONDARY, fontsize=9)
 
-    axes[0, 0].set_ylabel("Tepe yük", color=TEXT_SECONDARY, fontsize=9)
-    axes[1, 0].set_ylabel("Tepe yük", color=TEXT_SECONDARY, fontsize=9)
+    axes[0, 0].set_ylabel("Peak load", color=TEXT_SECONDARY, fontsize=9)
+    axes[1, 0].set_ylabel("Peak load", color=TEXT_SECONDARY, fontsize=9)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     axes[1, 1].legend(handles, labels, loc="upper center", frameon=False,
                       labelcolor=TEXT_PRIMARY, fontsize=8)
-    axes[1, 0].text(0.02, 0.9, "Kesikli çizgi: (b) tahmini yok say",
+    axes[1, 0].text(0.02, 0.9, "Dashed line: (b) ignore forecast",
                     transform=axes[1, 0].transAxes, color=TEXT_SECONDARY, fontsize=8)
     fig.tight_layout()
     fig.savefig(path, dpi=150)

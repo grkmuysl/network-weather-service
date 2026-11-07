@@ -105,7 +105,9 @@ def compare_shapes(cells: dict[str, np.ndarray]) -> None:
     print("\nSentetik eğriyle korelasyon")
     for name, shape in shapes.items():
         print(f"{name:24} {np.corrcoef(shape, synthetic)[0, 1]:7.2f}")
-    plot_daily_shapes({**shapes, "Sentetik": synthetic}, RESULTS / "milan_shapes.png")
+    labels = {"Merkez": "Centre", "Ortalama": "Average", "Akşam yoğun": "Evening"}
+    english = {labels[name]: shape for name, shape in shapes.items()}
+    plot_daily_shapes({**english, "Synthetic": synthetic}, RESULTS / "milan_shapes.png")
 
 
 def evaluate_milan() -> None:
