@@ -238,7 +238,7 @@
       ctx.fillText(`${Math.round(v * 100)}%`, left - 6, Y(v) + 4);
     }
     ctx.textAlign = "center";
-    for (let hour = 0; hour <= 24; hour += 3) ctx.fillText(`${String(hour).padStart(2, "0")}:00`, Math.min(X(hour * 60), w - 22), h - 8);
+    for (let hour = 0; hour <= 24; hour += w < 620 ? 6 : 3) ctx.fillText(`${String(hour).padStart(2, "0")}:00`, Math.min(X(hour * 60), w - 22), h - 8);
     ctx.strokeStyle = "#e8f0f1"; ctx.setLineDash([5, 4]); ctx.globalAlpha = 0.6;
     ctx.beginPath(); ctx.moveTo(left, Y(THRESHOLD)); ctx.lineTo(w - right, Y(THRESHOLD)); ctx.stroke();
     ctx.setLineDash([]); ctx.globalAlpha = 1;
