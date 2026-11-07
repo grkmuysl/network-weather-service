@@ -225,3 +225,28 @@ def plot_error_robustness(results: pd.DataFrame, path: Path) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)
+
+
+def plot_broadcast_loss(results: pd.DataFrame, path: Path) -> None:
+    """Yayın kaybı arttıkça tıkanıklığın nasıl değiştiğini gösterir."""
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3.6), sharex=True, facecolor=SURFACE)
+    lost = results[results.group == "Sabit kayıp"].copy()
+    lost["value"] = lost["value"].astype(float)
+    means = lost.groupby(["world", "value"]).congested_minutes_per_day.mean()
+    reference = results[results.group == "referans"].groupby("world")
+    reference = reference.congested_minutes_per_day.mean()
+
+    for ax, world in zip(axes, SWEEP_WORLDS):
+        line = means[world]
+        ax.plot(line.index, line.values, color=SERIES[0], linewidth=2, marker="o", markersize=4)
+        ax.axhline(reference[world], color=TEXT_SECONDARY, linewidth=1, linestyle="--")
+        _style_small_axes(ax, WORLD_LABELS[world])
+        ax.set_ylim(bottom=0)
+        ax.set_xlabel("Share of broadcasts lost", color=TEXT_SECONDARY, fontsize=9)
+        ax.xaxis.set_major_formatter(PercentFormatter(xmax=1, decimals=0))
+    axes[0].set_ylabel("Congested min/day", color=TEXT_SECONDARY, fontsize=9)
+    axes[0].text(0.02, 0.92, "Dashed line: (b) ignore forecast",
+                 transform=axes[0].transAxes, color=TEXT_SECONDARY, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)

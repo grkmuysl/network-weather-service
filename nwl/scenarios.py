@@ -24,6 +24,7 @@ from nwl.base_station import (
 from nwl.cell import Cell
 from nwl.forecast import LoadModel
 from nwl.layer import (
+    BroadcastLoss,
     QUIET_ERROR_WEIGHT,
     QUIET_MARGIN,
     quietest_slot,
@@ -136,6 +137,7 @@ def run_world(
     settings: TaskSettings = TaskSettings(),
     quiet_margin: float = QUIET_MARGIN,
     error_weight: float = QUIET_ERROR_WEIGHT,
+    loss: BroadcastLoss | None = None,
 ) -> SimulationResult:
     """Senaryoyu çalıştırır. Eğitilmiş `model` yoksa kusursuz tahmin kullanılır."""
     task_seed, schedule_seed = np.random.SeedSequence(seed).spawn(2)
@@ -160,5 +162,5 @@ def run_world(
     if scenario == "d":
         policy = partial(policy, quiet_margin=quiet_margin, error_weight=error_weight)
     base_station = BaseStation(forecaster, total_slots=len(human) // SLOT_MINUTES)
-    starts = schedule_tasks(tasks, base_station, policy, rng, meter)
+    starts = schedule_tasks(tasks, base_station, policy, rng, meter, loss)
     return simulate(cell, human, tasks, starts)

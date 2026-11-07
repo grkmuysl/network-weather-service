@@ -1,0 +1,200 @@
+<title>Network Weather</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a radio cell seen like a weather radar, with the 24-hour forecast beside it. */
+:root {
+  --ground: #0b1a22; --panel: #11252f; --raised: #183240; --line: #27434f;
+  --ink: #e8f0f1; --soft: #9fb4bc; --faint: #6d8791;
+  --clear: #4fd1b8; --busy: #f2b84b; --jam: #ff6f61; --plain: #93a9b3;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font: 400 15px/1.5 var(--body); -webkit-font-smoothing: antialiased;
+}
+.shell {
+  max-width: 1320px; margin: 0 auto; display: grid; gap: 20px;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+h1 { margin: 0; font: 700 clamp(30px, 4vw, 44px)/1 var(--display); letter-spacing: -0.02em; }
+.lead { margin: 8px 0 0; color: var(--soft); max-width: 66ch; }
+h2 { margin: 0; font: 600 13px/1.3 var(--body); letter-spacing: 0.05em; text-transform: uppercase; color: var(--soft); }
+.top { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 20px; }
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.stack { display: grid; gap: 20px; min-width: 0; align-content: start; }
+.radar-wrap { position: relative; aspect-ratio: 16 / 11; max-width: 100%; border-radius: 10px; overflow: hidden; background: #081419; }
+canvas { display: block; width: 100%; height: 100%; }
+.hud { position: absolute; left: 14px; top: 12px; display: grid; gap: 2px; pointer-events: none; }
+.hud-time { font: 500 13px var(--mono); color: var(--soft); }
+.hud-load { font: 700 44px/1 var(--display); font-variant-numeric: tabular-nums; }
+.pill { justify-self: start; margin-top: 4px; padding: 2px 10px; border-radius: 99px; font-size: 12.5px; font-weight: 600; color: #08171d; background: var(--clear); }
+.pill.busy { background: var(--busy); }
+.pill.jam { background: var(--jam); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--soft); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { width: 9px; height: 9px; border-radius: 50%; background: var(--clear); }
+.key.wait { background: none; border: 1.5px solid var(--busy); }
+.key.urgent { background: var(--jam); }
+.key.human { background: var(--faint); }
+.key.deaf { background: none; border: 1.5px dashed var(--soft); }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+button, select { font: 500 14px var(--body); color: var(--ink); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--soft); }
+button[aria-pressed="true"] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+:focus-visible { outline: 2px solid var(--clear); outline-offset: 2px; }
+#play { min-width: 84px; font-weight: 600; }
+#time { flex: 1 1 180px; min-width: 120px; accent-color: var(--clear); }
+.segments { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.segments button { padding: 8px 6px; line-height: 1.25; text-align: left; font-size: 13.5px; }
+.segments b { display: block; font: 500 12px var(--mono); opacity: 0.75; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.stat strong { display: block; font: 700 26px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.stat small { color: var(--soft); font-size: 12.5px; line-height: 1.3; display: block; }
+.delta { color: var(--clear); }
+.delta.worse { color: var(--jam); }
+.strip { height: 130px; }
+.note { margin: 0; font-size: 13.5px; color: var(--soft); }
+.hex { margin: 0; padding: 10px; font: 400 12px/1.7 var(--mono); background: #0a1820; border-radius: 8px; overflow-x: auto; white-space: pre; color: var(--soft); }
+.hex .h { color: var(--busy); }
+.hex .s { color: var(--ink); }
+.hex .l { color: var(--clear); }
+.hex .c { color: #c4a6ff; }
+.chart { height: 280px; cursor: crosshair; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; font-size: 13px; }
+.chip i { width: 14px; height: 3px; border-radius: 2px; }
+.chip[aria-pressed="true"] { background: var(--raised); color: var(--ink); border-color: var(--soft); }
+.chip[aria-pressed="false"] { opacity: 0.55; }
+.controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; }
+.field { display: grid; gap: 4px; min-width: 0; font-size: 13.5px; }
+.field span { display: flex; justify-content: space-between; gap: 8px; color: var(--soft); }
+.field output { color: var(--ink); font: 500 13px var(--mono); }
+.field input[type=range] { width: 100%; accent-color: var(--clear); }
+.field select { width: 100%; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--soft); grid-column: 1 / -1; }
+.check input { accent-color: var(--clear); width: 17px; height: 17px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--soft); font-weight: 500; font-size: 12.5px; }
+th:first-child, td:first-child { text-align: left; }
+tbody tr.on { background: var(--raised); }
+.story { font-size: 14px; min-height: 2.8em; margin: 0; }
+footer { color: var(--faint); font-size: 13px; }
+footer p { margin: 0; max-width: 100ch; }
+@media (max-width: 960px) { .top, .split { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .segments { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .controls { grid-template-columns: minmax(0, 1fr); }
+  .hud-load { font-size: 32px; }
+  .radar-wrap { aspect-ratio: 1; }
+}
+</style>
+
+<div class="shell">
+  <header>
+    <div>
+      <h1>Network Weather</h1>
+      <p class="lead" data-t="lead"></p>
+    </div>
+    <button id="lang" type="button">Türkçe</button>
+  </header>
+
+  <div class="top">
+    <section class="panel" aria-labelledby="cell-title">
+      <h2 id="cell-title" data-t="cellTitle"></h2>
+      <div class="radar-wrap">
+        <canvas id="radar" role="img" aria-label="Cell view"></canvas>
+        <div class="hud">
+          <div class="hud-time" id="clock"></div>
+          <div class="hud-load" id="load"></div>
+          <div class="pill" id="status"></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="key"></i><span data-t="kSending"></span></span>
+        <span><i class="key urgent"></i><span data-t="kUrgent"></span></span>
+        <span><i class="key wait"></i><span data-t="kWaiting"></span></span>
+        <span><i class="key deaf"></i><span data-t="kDeaf"></span></span>
+        <span><i class="key human"></i><span data-t="kHuman"></span></span>
+      </div>
+      <div class="transport">
+        <button id="play" type="button"></button>
+        <select id="speed" aria-label="Speed">
+          <option value="10">×1</option><option value="30" selected>×3</option><option value="80">×8</option>
+        </select>
+        <select id="day" aria-label="Day"></select>
+        <input id="time" type="range" min="0" max="1439" value="1140" aria-label="Time of day">
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="panel" aria-labelledby="scenario-title">
+        <h2 id="scenario-title" data-t="scenarioTitle"></h2>
+        <div class="segments" id="segments"></div>
+        <div class="stats" id="stats"></div>
+      </section>
+      <section class="panel" aria-labelledby="strip-title">
+        <h2 id="strip-title" data-t="stripTitle"></h2>
+        <div class="strip"><canvas id="strip" role="img" aria-label="24-hour forecast"></canvas></div>
+        <p class="note" id="stripNote"></p>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" aria-labelledby="chart-title">
+    <h2 id="chart-title" data-t="chartTitle"></h2>
+    <div class="chips" id="series"></div>
+    <div class="chart"><canvas id="chart" role="img" aria-label="Load over the day"></canvas></div>
+  </section>
+
+  <div class="split">
+    <section class="panel" aria-labelledby="try-title">
+      <h2 id="try-title" data-t="tryTitle"></h2>
+      <div class="chips" id="presets"></div>
+      <p class="story" id="story"></p>
+      <div class="controls">
+        <label class="field"><span data-t="trace"></span><select id="trace"></select></label>
+        <label class="field"><span data-t="forecaster"></span><select id="forecaster"></select></label>
+        <label class="field"><span><span data-t="share"></span><output id="shareOut"></output></span><input id="share" type="range" min="5" max="75" step="5" value="25"></label>
+        <label class="field"><span><span data-t="urgent"></span><output id="urgentOut"></output></span><input id="urgent" type="range" min="10" max="70" step="10" value="30"></label>
+        <label class="field"><span><span data-t="maxSlack"></span><output id="maxSlackOut"></output></span><input id="maxSlack" type="range" min="4" max="24" step="2" value="12"></label>
+        <label class="field"><span><span data-t="noise"></span><output id="noiseOut"></output></span><input id="noise" type="range" min="0" max="30" step="5" value="0"></label>
+        <label class="field"><span data-t="copies"></span><select id="copies"></select></label>
+        <div class="field"><span data-t="seedLabel"></span><button id="seed" type="button" data-t="newTasks"></button></div>
+        <label class="check"><input id="adaptive" type="checkbox" checked><span data-t="adaptive"></span></label>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="panel" aria-labelledby="table-title">
+        <h2 id="table-title" data-t="tableTitle"></h2>
+        <div class="table-wrap"><table id="results"></table></div>
+        <p class="note" id="tableNote"></p>
+      </section>
+      <section class="panel" aria-labelledby="packet-title">
+        <h2 id="packet-title" data-t="packetTitle"></h2>
+        <pre class="hex" id="hex"></pre>
+        <p class="note" id="packetNote"></p>
+      </section>
+    </div>
+  </div>
+
+  <footer><p data-t="footer"></p></footer>
+</div>
+<script>/*DATA*/</script>
+<script>/*ENGINE*/</script>
+<script>/*APP*/</script>

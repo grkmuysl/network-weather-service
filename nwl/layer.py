@@ -11,7 +11,7 @@ import numpy as np
 
 from nwl.agents import Tasks
 from nwl.base_station import BaseStation, LoadMeter
-from nwl.protocol import CONFIDENCE_SCALE, SLOT_MINUTES, ForecastMessage, decode
+from nwl.protocol import CONFIDENCE_SCALE, HORIZON_SLOTS, SLOT_MINUTES, ForecastMessage, decode
 
 SAFETY_MARGIN_MINUTES = 30.0
 QUIET_MARGIN = 0.05
@@ -47,6 +47,24 @@ class NetworkWeatherLayer:
                 cautious_load = entry.predicted_load + expected_error
                 options.append(StartOption(first, last, cautious_load, expected_error))
         return options
+
+
+class BroadcastLoss:
+    """Yayınların bazı ajanlara ulaşamaması.
+
+    Her görev için hücrede rastgele bir konum seçilir. Oradaki kayıp olasılığı, görevin
+    sahibinin kaç yayını üst üste kaçırdığını belirler.
+    """
+
+    def __init__(self, loss_by_position: np.ndarray) -> None:
+        self.loss_by_position = loss_by_position
+
+    def missed_broadcasts(self, rng: np.random.Generator) -> int:
+        """Üst üste kaçırılan yayın sayısı. Hiç duyulmuyorsa ufuk uzunluğunu döndürür."""
+        loss = rng.choice(self.loss_by_position)
+        if loss >= 1.0:
+            return HORIZON_SLOTS
+        return min(int(rng.geometric(1 - loss)) - 1, HORIZON_SLOTS)
 
 
 Policy = Callable[[list[StartOption], np.random.Generator], int]
@@ -85,11 +103,13 @@ def schedule_tasks(
     policy: Policy,
     rng: np.random.Generator,
     meter: LoadMeter | None = None,
+    loss: BroadcastLoss | None = None,
 ) -> np.ndarray:
     """Her görevin başlayacağı dakikayı belirler.
 
     `meter` verilirse başlayan görevler ölçülen yüke eklenir, böylece baz istasyonu
-    ajanların kaydırdığı yükü sonraki tahminlerinde görür.
+    ajanların kaydırdığı yükü sonraki tahminlerinde görür. `loss` verilirse ajanlar
+    yayınları kaçırabilir: elindeki son tahmini kullanır, hiç tahmini yoksa hemen gönderir.
     """
     starts = tasks.arrival.copy()
     durations = tasks.ideal_duration
@@ -97,19 +117,21 @@ def schedule_tasks(
         for i in np.flatnonzero(tasks.urgent):
             meter.add_task(int(starts[i]), durations[i])
     latest_starts = np.floor(tasks.deadline - tasks.ideal_duration - SAFETY_MARGIN_MINUTES)
-    layer = NetworkWeatherLayer()
-    heard_slot = None
+    heard: dict[int, NetworkWeatherLayer] = {}
 
     for i in np.argsort(tasks.arrival, kind="stable"):
         if tasks.urgent[i]:
             continue
 
         now = int(tasks.arrival[i])
-        if now // SLOT_MINUTES != heard_slot:
-            layer.receive(base_station.broadcast(now))
-            heard_slot = now // SLOT_MINUTES
+        slot = now // SLOT_MINUTES
+        if slot not in heard:
+            heard[slot] = NetworkWeatherLayer()
+            heard[slot].receive(base_station.broadcast(now))
 
-        options = layer.start_options(now, int(latest_starts[i]))
+        missed = loss.missed_broadcasts(rng) if loss is not None else 0
+        layer = heard.get(slot - missed)
+        options = layer.start_options(now, int(latest_starts[i])) if layer else []
         if options:
             starts[i] = policy(options, rng)
         if meter is not None:

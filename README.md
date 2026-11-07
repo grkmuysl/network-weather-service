@@ -55,6 +55,10 @@ python -m nwl.experiments errors
 ```
 
 ```bash
+python -m nwl.experiments broadcast
+```
+
+```bash
 python -m nwl.experiments plots
 ```
 
@@ -68,6 +72,34 @@ Veri kaynağı: BigDataChallenge yarışması. Barlacchi vd., "A multi-source da
 
 Veri değerleri ölçeklidir ve kareler baz istasyonu değildir. Bu projede 5×5 karelik bloklar (yaklaşık 1,2 km) tek hücre sayılır ve yük ölçeği varsayımdır.
 
+## Sionna kalibrasyonu
+
+Hücre kapasitesi ve yayın kaybı [NVIDIA Sionna](https://github.com/NVlabs/sionna) ile hesaplanır. Sonuçlar `calibration/` klasöründe saklandığı için deneyleri çalıştırmak için bu adımlara gerek yoktur:
+
+```bash
+python -m nwl.sionna_cell
+```
+
+```bash
+python -m nwl.sionna_broadcast
+```
+
+İkinci komut 15 dakika kadar sürer.
+
+## Etkileşimli simülasyon
+
+`simulation/dist/network_weather.html` dosyası çift tıklanarak tarayıcıda açılır, sunucu gerekmez. Motor Python simülatörünün kurallarını kullanır. Tarayıcıda çalışmadıkları için ARIMA yerine haftalık şekil + AR(1) modeli vardır, LSTM yoktur.
+
+Kaynaklar değişince dosyayı yeniden üretmek için:
+
+```bash
+python -m simulation.export_data
+```
+
+```bash
+python -m simulation.build
+```
+
 ## Testler
 
 ```bash
@@ -80,5 +112,8 @@ python -m pytest
 |---|---|
 | `nwl/` | Simülasyon kodu |
 | `tests/` | Otomatik testler |
+| `simulation/` | Etkileşimli tarayıcı simülasyonu |
+| `calibration/` | Sionna sonuçları |
+| `report/` | Raporun kod eki |
 | `data/` | Ham veri, depoya girmez |
 | `results/` | Üretilen grafik ve tablolar, depoya girmez |

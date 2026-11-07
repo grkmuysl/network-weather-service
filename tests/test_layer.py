@@ -15,6 +15,7 @@ from nwl.cell import Cell
 from nwl.forecast import MovingAverage, SameTimeLastWeek, SameTimeYesterday
 from nwl.layer import (
     SAFETY_MARGIN_MINUTES,
+    BroadcastLoss,
     NetworkWeatherLayer,
     StartOption,
     quietest_slot,
@@ -283,3 +284,49 @@ def test_noisy_forecaster_reports_its_expected_error():
     noisy = NoisyForecaster(perfect, 0.1, 0.0, 10, np.random.default_rng(0))
     _, confidence = noisy.predict(0, np.array([0, 1]))
     assert confidence == pytest.approx(1 - 0.0798 / 0.5, abs=0.001)
+
+
+def test_agent_that_never_hears_the_broadcast_sends_at_once():
+    station = station_with_loads([0.9, 0.1, 0.1, 0.1])
+    task = deferrable_task(arrival=0, deadline=500.0)
+    starts = schedule_tasks(
+        task, station, quietest_slot, np.random.default_rng(0), loss=BroadcastLoss(np.array([1.0]))
+    )
+    assert starts[0] == 0
+
+
+def test_no_loss_changes_nothing():
+    tasks = generate_tasks(Cell(), 2, np.random.default_rng(0))
+    station = BaseStation(PerfectForecaster(np.full(2 * STEPS_PER_DAY, 0.5)), total_slots=192)
+    clean = schedule_tasks(tasks, station, quietest_slot, np.random.default_rng(0))
+    silent = schedule_tasks(
+        tasks, station, quietest_slot, np.random.default_rng(0),
+        loss=BroadcastLoss(np.array([0.0])),
+    )
+    assert np.array_equal(silent, clean)
+
+
+def test_missed_broadcast_count_follows_the_loss_rate():
+    loss = BroadcastLoss(np.array([0.5]))
+    rng = np.random.default_rng(0)
+    counts = [loss.missed_broadcasts(rng) for _ in range(2000)]
+    assert np.mean(counts) == pytest.approx(1.0, abs=0.1)
+
+
+def test_stale_forecast_is_used_after_a_missed_broadcast():
+    class MissOne:
+        def missed_broadcasts(self, rng: np.random.Generator) -> int:
+            return 1
+
+    station = station_with_loads([0.9, 0.9, 0.1, 0.9, 0.9, 0.9])
+    first = deferrable_task(arrival=0, deadline=1000.0)
+    second = deferrable_task(arrival=SLOT_MINUTES, deadline=1000.0)
+    tasks = Tasks(
+        np.concatenate([first.arrival, second.arrival]),
+        np.concatenate([first.size_mb, second.size_mb]),
+        np.array([False, False]),
+        np.concatenate([first.deadline, second.deadline]),
+    )
+    starts = schedule_tasks(tasks, station, quietest_slot, np.random.default_rng(0), loss=MissOne())
+    assert starts[0] == 0
+    assert starts[1] == 2 * SLOT_MINUTES

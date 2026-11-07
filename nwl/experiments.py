@@ -1,13 +1,15 @@
 """Raporun deneyleri. Her deney sonuçlarını results/ altına CSV olarak yazar.
 
 Çalıştırmak için: python -m nwl.experiments main
-Diğer deneyler: sweeps, errors. Grafikler için: python -m nwl.experiments plots
+Diğer deneyler: sweeps, errors, broadcast. Grafikler için: python -m nwl.experiments plots
 """
 
+import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from nwl.agents import TaskSettings
@@ -15,8 +17,14 @@ from nwl.cell import Cell
 from nwl.compare_forecasters import worlds
 from nwl.evaluate_forecasts import all_models
 from nwl.forecast import DeseasonalizedArima
+from nwl.layer import BroadcastLoss
 from nwl.metrics import compute_metrics
-from nwl.plots import plot_error_robustness, plot_main_results, plot_sweeps
+from nwl.plots import (
+    plot_broadcast_loss,
+    plot_error_robustness,
+    plot_main_results,
+    plot_sweeps,
+)
 from nwl.scenarios import MARGIN_DAYS, ForecastError, measured_past, run_world
 
 RESULTS = Path("results")
@@ -33,6 +41,10 @@ CONGESTION_THRESHOLDS = (0.7, 0.8, 0.9)
 SHIFTS_MINUTES = (-120, -60, -30, 0, 30, 60, 120)
 NOISE_LEVELS = (0.05, 0.1, 0.2, 0.3)
 NOISE_MEMORIES = (0.0, 0.95)
+
+BROADCAST_PATH = Path("calibration/broadcast.json")
+CELL_PATH = Path("calibration/cell.json")
+UNIFORM_LOSSES = (0.0, 0.25, 0.5, 0.75, 0.95, 1.0)
 
 
 def row(world: str, group: str, value: object, scenario: str, forecaster: str, seed: int,
@@ -152,13 +164,50 @@ def run_errors() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def loss_by_position(curve: list[float], snr_db: list[float]) -> np.ndarray:
+    """Sionna'nın kayıp eğrisini hücredeki SINR dağılımına uygular."""
+    sinr_db = json.loads(CELL_PATH.read_text())["sinr_db_percentiles"]
+    return np.interp(sinr_db, snr_db, curve)
+
+
+def run_broadcast() -> pd.DataFrame:
+    """Yayınlar kaybolunca sistemin nasıl davrandığını ölçer. Tahminci ARIMA."""
+    cell = Cell()
+    calibration = json.loads(BROADCAST_PATH.read_text())
+    losses = {("Sabit kayıp", p): BroadcastLoss(np.array([p])) for p in UNIFORM_LOSSES}
+    for copies, curve in calibration["message_error_rate"].items():
+        positions = loss_by_position(curve, calibration["snr_db"])
+        losses[("Sionna", int(copies))] = BroadcastLoss(positions)
+
+    rows = []
+    for world in worlds(cell):
+        if world.name not in SWEEP_WORLDS:
+            continue
+        past = measured_past(world, cell)
+        model = DeseasonalizedArima()
+        model.fit(past)
+        for seed in MAIN_SEEDS:
+            baseline = run_world(world, cell, "b", seed)
+            rows.append(row(world.name, "referans", "", "b", "-", seed, baseline, cell))
+            for (group, value), loss in losses.items():
+                result = run_world(world, cell, "d", seed, model=model, past=past, loss=loss)
+                rows.append(row(world.name, group, value, "d", "ARIMA", seed, result, cell))
+    return pd.DataFrame(rows)
+
+
 def make_plots() -> None:
     plot_main_results(pd.read_csv(RESULTS / "main.csv"), RESULTS / "main_results.png")
     plot_sweeps(pd.read_csv(RESULTS / "sweeps.csv"), RESULTS / "sweeps.png")
     plot_error_robustness(pd.read_csv(RESULTS / "errors.csv"), RESULTS / "robustness.png")
+    plot_broadcast_loss(pd.read_csv(RESULTS / "broadcast.csv"), RESULTS / "broadcast_loss.png")
 
 
-EXPERIMENTS = {"main": run_main, "sweeps": run_sweeps, "errors": run_errors}
+EXPERIMENTS = {
+    "main": run_main,
+    "sweeps": run_sweeps,
+    "errors": run_errors,
+    "broadcast": run_broadcast,
+}
 
 
 def main() -> None:
